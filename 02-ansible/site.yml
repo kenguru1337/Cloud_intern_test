@@ -1,0 +1,105 @@
+---
+- name: Установка Docker, развёртывание контейнеров и настройка Nginx
+  hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    registry_url: "docker.io"
+    registry_username: "kenguru777"      
+    registry_password: "______"       
+    app_image: "{{ registry_url }}/kenguru777/echo-server:latest"
+    containers:
+      - name: echo_server_8001
+        host_port: 8001
+      - name: echo_server_8002
+        host_port: 8002
+      - name: echo_server_8003
+        host_port: 8003
+
+  tasks:
+    - name: Установка зависимостей APT
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+        update_cache: yes
+
+    - name: Добавление GPG-ключа Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Добавление репозитория Docker CE
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Установка Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: latest
+        update_cache: yes
+
+    - name: Логин в Docker Hub
+      community.docker.docker_login:
+        registry_url: "{{ registry_url }}"
+        username:    "{{ registry_username }}"
+        password:    "{{ registry_password }}"
+      no_log: true
+
+    - name: Остановить и удалить старые контейнеры
+      community.docker.docker_container:
+        name: "{{ item.name }}"
+        state: absent
+        force_kill: true
+      loop: "{{ containers }}"
+
+    - name: Запуск 3 экземпляров echo-server с пробросом портов
+      community.docker.docker_container:
+        name: "{{ item.name }}"
+        image: "{{ app_image }}"
+        state: started
+        restart_policy: always
+        published_ports:
+          - "{{ item.host_port }}:8000"
+      loop: "{{ containers }}"
+
+    - name: Установка Nginx
+      apt:
+        name: nginx
+        state: latest
+        update_cache: yes
+
+    - name: Настройка Nginx как балансировщика нагрузки
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          upstream backend {
+          {% for c in containers %}
+              server 127.0.0.1:{{ c.host_port }};
+          {% endfor %}
+          }
+
+          server {
+              listen 80;
+              location / {
+                  proxy_pass http://backend;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+          }
+      notify: Перезапуск Nginx
+
+  handlers:
+    - name: Перезапуск Nginx
+      service:
+        name: nginx
+        state: restarted
