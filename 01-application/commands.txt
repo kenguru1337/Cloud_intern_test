@@ -1,13 +1,5 @@
-
-# Сборка Docker-образа
-docker build --build-arg AUTHOR="Aleksey Arkhipov" -t kenguru777/echo-server:latest .   
-
-# Запуск контейнера с передачей переменной окружения AUTHOR
-docker run -d --name echo-test -p 8000:8000 -e AUTHOR="Aleksey Arkhipov" kenguru777/echo-server:latest 
-
 # Вход в Docker Hub
 docker login
 
-# Публикация образа в Docker Hub
-docker push kenguru777/echo-server:latest
-
+# Сборка Docker-образа
+docker buildx build --platform linux/amd64,linux/arm64 -t kenguru777/echo-server:latest --push .
